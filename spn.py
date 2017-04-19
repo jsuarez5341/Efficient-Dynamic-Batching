@@ -10,8 +10,7 @@ import torch.nn as nn
 import torch.nn.functional as F
 from torch.autograd import Variable 
 
-from rawLangBatcher import RawBatcher
-from HyperLinear import HyperLinear
+from clevrBatcher import ClevrBatcher
 
 #Provides sane dataloader defaults
 def ezLoader(data, batch_size, shuffle=True, num_workers=2):
@@ -22,30 +21,64 @@ def ezLoader(data, batch_size, shuffle=True, num_workers=2):
 #Load PTB
 def dataBatcher():
    print('Loading Data...')
-   train = 'data/nlm/ptb.train.txt'
-   valid = 'data/nlm/ptb.valid.txt'
-   test  = 'data/nlm/ptb.test.txt'
-   vocab = 'data/nlm/ptb.train.txt'
 
-   trainBatcher = RawBatcher(train, vocab)
-   validBatcher = RawBatcher(valid, vocab)
-   testBatcher  = RawBatcher(test, vocab)
+   trainBatcher = ClevrBatcher('train')
+   validBatcher = ClevrBatcher('val')
+   testBatcher  = ClevrBatcher('test')
    print('Data Loaded.')
 
    return trainBatcher, validBatcher, testBatcher
 
-def highwayGate(Ws, s, trainable):
-   h = s.size()[1]
-   hh, tt  = t.split(Ws, h, 1)
-   hh, tt = F.tanh(hh), F.sigmoid(tt) 
-   cc = 1 - tt
-   tt = F.dropout(tt, gateDrop, trainable)
-   return hh*tt + s*cc
+class UnaryModule(nn.Module):
+   def __init__(self):
+      super(UnaryModule, self).__init__()
+      self.conv1  = nn.Conv2d(128, 128, 3)
+      self.conv2  = nn.Conv2d(128, 128, 3)
+
+   def forward(self, x):
+      inp = x
+      x = F.relu(self.conv1(x))
+      x = self.conv2(x)
+      x += inp
+      x = F.relu(x)
+      return x
+
+class EngineClassifier(nn.Module):
+   def __init__(self):
+      super(EngineClassifier, self).__init__()
+      self.conv1  = nn.Conv2d(128, 512, 1)
+      self.fc1    = nn.Linear(512 * 7 * 7, 1024)
+      self.pool   = nn.MaxPool2d(2)
+      self.fc2    = nn.Linear(1024, numClasses)
+
+   def forward(self, x):
+      x = F.relu(self.conv1(x))
+      x = self.pool(x)
+      x = F.relu(self.fc1(x))
+      x = self.fc2(x)
+      return x
+
+class BinaryModule(nn.Module):
+   def __init__(self):
+      super(BinaryModule, self).__init__()
+      self.conv1  = nn.Conv2d(256, 128, 1)
+      self.conv2  = nn.Conv2d(128, 128, 3)
+      self.conv3  = nn.Conv2d(128, 128, 3)
+
+   def forward(self, x1, x2):
+      x = t.cat((x1, x2), 3)
+      x = F.relu(self.conv1(x))
+      res = x
+      x = F.relu(self.conv2(x))
+      x = self.conv3(x)
+      x += res
+      x = F.relu(x)
+      return x
 
 class CNN(nn.Module):
    def __init__(self):
       super(CNN, self).__init__()
-      self.resnet = models.resnet101(pretrained=True)
+      self.resnet = torchvision.models.resnet101(pretrained=True)
       self.conv1  = nn.Conv2d(1024, 128, 3)
       self.conv2  = nn.Conv2d(128, 128, 3)
 
@@ -59,7 +92,7 @@ class ProgramGenerator(nn.Module):
    def __init__(self):
       super(ProgramGenerator, self).__init__()
       self.embed = nn.Embedding(vocab, embedDim)
-      self.LSTM = t.nn.LSTM(embedDim, hGen, 2, dropout=recurDrop)
+      self.LSTM = t.nn.LSTM(embedDim, hGen, 2)
 
    def forward(self, x, trainable):
       x = self.embed(x)
@@ -96,14 +129,14 @@ def runData(batcher, trainable=False, verbose=False, minContext=0):
          sys.stdout.write('#')
          sys.stdout.flush()
 
-      x, y = batcher.next(distributedBatchSz)
-      x, y = t.from_numpy(x).cuda(), t.from_numpy(y).cuda()
+      xi, xq, y  = batcher.next(distributedBatchSz)
+      xi, xq, y  = t.from_numpy(xi).cuda(), t.from_numpy(xq).cuda(), t.from_numpy(y).cuda()
       if not trainable:
-         x, y = Variable(x, volatile=True), Variable(y, volatile=True)
+         xi, xq, y = Variable(xi, volatile=True), Variable(xq, volatile=True), Variable(y, volatile=True)
       else:
-         x, y = Variable(x), Variable(y)
+         xi, xq, y = Variable(xi), Variable(xq), Variable(y)
 
-      a = net(x, trainable)
+      a = net(xi, xq, trainable)
 
       loss = criterion(a, y)
       lossAry += [loss.data[0]]
@@ -158,17 +191,13 @@ if __name__ == '__main__':
    #Hyperparams
    embedDim = 300
    hGen = 256 
-   eta = 0.001
+   eta = 0.0005
    #Regularizers
    gateDrop = 1.0 -  0.65
    embedDrop= 1.0 - 0.75
-      self.embed = nn.Embedding(vocab, embedDim)
-      self.CNN = models.resnet101(pretrained=True)
-      self.LSTM = t.nn.LSTM(embedDim, hGen, 2, dropout=recurDrop)
-
 
    #Params
-   batchSz = 64
+   batchSz = 10
    distributedBatchSz = batchSz*1
    context=100
    minContext=50
