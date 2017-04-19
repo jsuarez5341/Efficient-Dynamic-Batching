@@ -42,79 +42,61 @@ def highwayGate(Ws, s, trainable):
    tt = F.dropout(tt, gateDrop, trainable)
    return hh*tt + s*cc
 
-class HyperRHN(nn.Module):
-
+class CNN(nn.Module):
    def __init__(self):
-      super(HyperRHN, self).__init__()
-      #Hypernet
-      self.hiddenHyper = nn.ModuleList(depth*[nn.Linear(hHyper, 2*hHyper)])
-      self.inputHyper  = nn.Linear(embedDim, 2*hHyper)
+      super(CNN, self).__init__()
+      self.resnet = models.resnet101(pretrained=True)
+      self.conv1  = nn.Conv2d(1024, 128, 3)
+      self.conv2  = nn.Conv2d(128, 128, 3)
 
-      #RHN
-      self.hidden = nn.ModuleList(depth*[HyperLinear(hNetwork, 2*hNetwork)])
-      self.input = HyperLinear(embedDim, 2*hNetwork)
+   def forward(self, x):
+      x = self.resnet(x)
+      x = F.relu(self.conv1(x))
+      x = F.relu(self.conv2(x))
+      return x
 
-      self.upscaleProj = nn.Linear(hHyper, hNetwork)
-
-   def forward(self, x, sNetwork, sHyper, trainable):
-      for i in range(depth):
-         #Hypernet
-         Ws = self.hiddenHyper[i](sHyper)
-         if i == 0:
-            Ws += self.inputHyper(x)
-         sHyper = highwayGate(Ws, sHyper, trainable)
-
-         #Upscale
-         z = self.upscaleProj(sHyper)
-
-         #RHN
-         Ws = self.hidden[i](sNetwork, z)
-         if i == 0:
-            Ws += self.input(x, z)
-         sNetwork= highwayGate(Ws, sNetwork, trainable)
-
-      return sHyper, sNetwork
-
-
-class Network(nn.Module):
-
+class ProgramGenerator(nn.Module):
    def __init__(self):
-      super(Network, self).__init__()
-      self.embed   = nn.Embedding(vocab, embedDim)
-      self.unembed = nn.Linear(hNetwork, vocab)
-      self.HyperRHN = HyperRHN()
+      super(ProgramGenerator, self).__init__()
+      self.embed = nn.Embedding(vocab, embedDim)
+      self.LSTM = t.nn.LSTM(embedDim, hGen, 2, dropout=recurDrop)
 
    def forward(self, x, trainable):
       x = self.embed(x)
-      x = F.dropout(x, embedDrop, train)
-
-      sHyper = Variable(t.zeros(batchSz, hHyper).cuda())
-      sNetwork = Variable(t.zeros(batchSz, hNetwork).cuda())
-      out = []
-
-      for i in range(context):
-         sHyper, sNetwork = self.HyperRHN(x[:, i], sNetwork, sHyper, trainable)
-         out += [sNetwork]
-         
-      x = t.stack(out, 1)
-      x = x.view(batchSz*context, hNetwork)
-      x = self.unembed(x)
-      x = x.view(batchSz, context, vocab)
+      x = self.LSTM(x)
       return x
 
+class ExecutionEngine(nn.Module):
+   def __init__(self):
+      super(ExecutionEngine, self).__init__()
+      self.CNN = CNN()
+
+   def forward(self, x, img):
+      img = self.CNN(img)
+      return img
+
+class Network(nn.Module):
+   def __init__(self):
+      super(Network, self).__init__()
+      self.ProgramGenerator = ProgramGenerator()
+      self.ExecutionEngine  = ExecutionEngine()
+
+   def forward(self, x, img):
+      x = self.ProgramGenerator(x)
+      x = self.ExecutionEngine(x, img)
+      return x
 
 def runData(batcher, trainable=False, verbose=False, minContext=0):
    m = batcher.m
-   iters = int(m/distributedBatchSz/context)
+   iters = int(m/distributedBatchSz)
    correct = 0.0
    lossAry = []
    for i in range(iters):
-      if verbose and i % int(m/distributedBatchSz/context/10) == 0:
+      if verbose and i % int(m/distributedBatchSz/10) == 0:
          sys.stdout.write('#')
          sys.stdout.flush()
 
-      x, y = batcher.next(distributedBatchSz, context, minContext)
-      y = y[:, minContext:].ravel()
+      x, y = batcher.next(distributedBatchSz)
       x, y = t.from_numpy(x).cuda(), t.from_numpy(y).cuda()
       if not trainable:
          x, y = Variable(x, volatile=True), Variable(y, volatile=True)
@@ -122,9 +104,6 @@ def runData(batcher, trainable=False, verbose=False, minContext=0):
          x, y = Variable(x), Variable(y)
 
       a = net(x, trainable)
-
-      #Mask preds
-      a = a[:, minContext:].view(-1, vocab)
 
       loss = criterion(a, y)
       lossAry += [loss.data[0]]
@@ -177,19 +156,19 @@ if __name__ == '__main__':
    root='saves/' + sys.argv[1] + '/'
    
    #Hyperparams
-   context=100
-   minContext = 50
-   embedDim = 27
-   depth = 7
-   hNetwork = 1000
-   hHyper = 128
+   embedDim = 300
+   hGen = 256 
    eta = 0.001
    #Regularizers
    gateDrop = 1.0 -  0.65
    embedDrop= 1.0 - 0.75
+      self.embed = nn.Embedding(vocab, embedDim)
+      self.CNN = models.resnet101(pretrained=True)
+      self.LSTM = t.nn.LSTM(embedDim, hGen, 2, dropout=recurDrop)
+
 
    #Params
-   batchSz = 128
+   batchSz = 64
    distributedBatchSz = batchSz*1
    context=100
    minContext=50
