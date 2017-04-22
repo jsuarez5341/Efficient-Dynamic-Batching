@@ -23,9 +23,9 @@ class ClevrBatcher():
       imgs = [imread('data/images/'+split+'/'+f, mode='RGB') for f in fNames]
       imgs = np.stack(imgs)
       '''
-      self.imgs = np.random.rand(100, 240, 240, 3)
-      self.questions = np.random.randint(0,100,(50,20))
-      self.answers = np.random.randint(0,50,50)
+      self.imgs = np.random.rand(100, 3, 224, 224)
+      self.questions = np.random.randint(0,50,(100,8))
+      self.answers = np.random.randint(0,60,100)
       self.rand = rand
 
       self.m = self.imgs.shape[0]
