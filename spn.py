@@ -30,10 +30,9 @@ def dataBatcher():
 
    trainBatcher = ClevrBatcher('train')
    validBatcher = ClevrBatcher('val')
-   testBatcher  = ClevrBatcher('test')
    print('Data Loaded.')
 
-   return trainBatcher, validBatcher, testBatcher
+   return trainBatcher, validBatcher
 
 class UnaryModule(nn.Module):
    def __init__(self):
@@ -301,7 +300,7 @@ if __name__ == '__main__':
    numClasses = 60
    gpu = 1
 
-   trainBatcher, validBatcher, testBatcher = dataBatcher()
+   trainBatcher, validBatcher = dataBatcher()
 
    net = Network()
    #net = t.nn.DataParallel(net, device_ids=[1])

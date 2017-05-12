@@ -3,5 +3,5 @@ from pdb import set_trace as t
 
 if __name__ == '__main__':
    batcher = ClevrBatcher('train')
-   dat = batcher.next()
+   dat = batcher.next(64)
    t()
