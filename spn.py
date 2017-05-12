@@ -292,8 +292,8 @@ if __name__ == '__main__':
    #Params
    batchSz = 10
    distributedBatchSz = batchSz*1
-   qLen = 8
-   qVocab = 50
+   qLen = 190
+   qVocab = 96
    pVocab = 70
    numUnary = 34
    numBinary = 35

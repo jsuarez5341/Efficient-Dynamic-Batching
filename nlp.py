@@ -5,7 +5,7 @@ import utils
 def buildVocab(fName):
    dat = open(fName).read()
    chars = sorted(np.unique(list(dat)).tolist())
-   vocab = dict(zip(list(chars), np.arange(len(chars))))
+   vocab = dict(zip(list(chars), 1+np.arange(len(chars))))
    invVocab = {v: k for k, v in vocab.items()}
    return vocab, invVocab
 

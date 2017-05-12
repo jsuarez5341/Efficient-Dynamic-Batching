@@ -48,14 +48,19 @@ class ClevrBatcher():
          self.imgInds = np.asarray([self.imgInds[ind] for ind in mask])
          self.questions = [self.questions[ind] for ind in mask]
          self.answers = [self.answers[ind] for ind in mask]
-      #Have to pad
+       
+      #Pad questions
+      newQuestions = []
+      for q in self.questions:
+         newQuestions += [q.tolist() + [0]*(190-len(q))]
+      self.questions = np.asarray(newQuestions)
 
    def next(self, batchSize):
       #Stupid, but stupidly fast. 
       #Other methods are smart and stupidly slow.     
       if (self.pos + batchSize) > self.m:
          self.pos = 0
-      T()
+
       imgInds   = self.imgInds[self.pos:self.pos+batchSize]
       imgs      = self.imgs[imgInds]
       questions = self.questions[self.pos:self.pos+batchSize]
