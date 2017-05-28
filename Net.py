@@ -11,17 +11,17 @@ import torch.nn.functional as F
 from torch.autograd import Variable 
 from torch.autograd import StochasticFunction
 
-import utils
-from clevrBatcher import ClevrBatcher
-from ExecutionEngine import ExecutionEngine
-from ProgramGenerator import ProgramGenerator
+from lib import utils
+from ClevrBatcher import ClevrBatcher
+from model.ExecutionEngine import ExecutionEngine
+from model.ProgramGenerator import ProgramGenerator
 
 #Load PTB
 def dataBatcher():
    print('Loading Data...')
 
-   trainBatcher = ClevrBatcher(batchSz, 'train')
-   validBatcher = ClevrBatcher(batchSz, 'val')
+   trainBatcher = ClevrBatcher(batchSz, 'Train', maxSamples=100) 
+   validBatcher = ClevrBatcher(batchSz, 'Val', maxSamples=100)
    print('Data Loaded.')
 
    return trainBatcher, validBatcher
@@ -33,7 +33,7 @@ class ProgramBatcher():
 
    def next(self):
       x, y = self.batcher.next()
-      q, img = x
+      q, img, imgIdx, qMask, pMask = x
       p, ans = y
       return [q], [p]
 
@@ -99,7 +99,7 @@ if __name__ == '__main__':
    dropProb = 1.0 - 0.75
 
    #Params
-   batchSz = 2
+   batchSz = 10
    hGen = 256 
    qLen = 45
    qVocab = 96
