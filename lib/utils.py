@@ -188,7 +188,7 @@ def runData(net, opt, batcher, criterion=nn.CrossEntropyLoss(),
 
       m = np.prod(y.size()).item()
       a, y = a.view(m, -1), y.view(-1)
-      m = t.sum(y != 0).data[0]
+      #m = t.sum(y != 0).data[0]
 
       loss = criterion(a, y)
       if trainable:
@@ -201,7 +201,8 @@ def runData(net, opt, batcher, criterion=nn.CrossEntropyLoss(),
 
       #Stats
       _, preds = t.max(a.data, 1)
-      acc = sum((y.data == preds) * (y.data != 0)) / float(m)
+      acc = sum((y.data == preds)) / float(m)
+      #acc = sum((y.data == preds) * (y.data != 0)) / float(m)
 
       #Accumulate average
       meanLoss.update(loss.data[0])
