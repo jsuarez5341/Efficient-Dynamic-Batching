@@ -23,7 +23,7 @@ class ProgramGenerator(nn.Module):
       #For REINFORCE
       self.eda = utils.EDA()
 
-   def forward(self, x, trainable=False):
+   def forward(self, x, trainable=None):
       x = self.embed(x)
       x, state = self.encoder(x)
       stateInp = [state[0][0] for i in range(self.qLen)]

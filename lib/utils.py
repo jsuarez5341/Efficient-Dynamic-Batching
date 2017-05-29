@@ -170,7 +170,8 @@ def runMinibatch(net, batcher, cuda=True, volatile=False, trainable=False):
    x, y, mask = batcher.next()
    x = [var(e, volatile=volatile, cuda=cuda) for e in x]
    y = [var(e, volatile=volatile, cuda=cuda) for e in y]
-   mask = var(mask, volatile=volatile, cuda=cuda)
+   if mask is not None:
+      mask = var(mask, volatile=volatile, cuda=cuda)
 
    if len(x) == 1:
       x = x[0]
@@ -216,12 +217,13 @@ def runData(net, opt, batcher, criterion=maskedCE,
    return meanLoss.cma, meanAcc.cma
 
 def stats(criterion, a, y, mask):
-   _, preds = t.max(a.data, 2)
    if criterion == maskedCE:
+      _, preds = t.max(a.data, 2)
       loss = criterion(a, y, mask)
       m = t.sum(mask)
       acc = t.sum(y.data == preds) / float(m.data[0])
    else:
+      _, preds = t.max(a.data, 1)
       loss = criterion(a, y)
       acc = t.mean((y.data == preds).float())
 

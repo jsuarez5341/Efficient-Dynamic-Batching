@@ -20,14 +20,17 @@ class ExecutionEngine(nn.Module):
       self.CNN = CNN()
       self.classifier = EngineClassifier(numClasses)
 
-   def forward(self, x, img):
+   def forward(self, x, trainable=None):
+      p, img = x
       a = []
+      img = t.transpose(t.transpose(img, 2, 3), 1, 2)
       imgFeats = self.CNN(img)
 
       #Can't parallelize
-      for i in range(x.size()[0]):
+      for i in range(p.size()[0]):
          prog = Program(self.arities, self.cells)
-         prog.build(x[i])
+         pi = p[i].data.cpu().numpy().tolist()
+         prog.build(pi)
          a += [prog.execute(imgFeats[i:i+1])]
       a = t.cat(a, 0)
       a = self.classifier(a)

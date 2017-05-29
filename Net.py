@@ -20,11 +20,23 @@ from model.ProgramGenerator import ProgramGenerator
 def dataBatcher():
    print('Loading Data...')
 
-   trainBatcher = ClevrBatcher(batchSz, 'Train', maxSamples=100) 
+   trainBatcher = ClevrBatcher(batchSz, 'Train', maxSamples=500) 
    validBatcher = ClevrBatcher(batchSz, 'Val', maxSamples=100)
    print('Data Loaded.')
 
    return trainBatcher, validBatcher
+
+class EndToEndBatcher():
+   def __init__(self, batcher):
+      self.batcher = batcher
+      self.batches = batcher.batches
+
+   def next(self):
+      x, y, mask = self.batcher.next()
+      q, img, imgIdx = x
+      p, ans = y
+      qMask, pMask = mask
+      return [q, img], [ans[:, 0]], None
 
 class ProgramBatcher():
    def __init__(self, batcher):
@@ -38,12 +50,25 @@ class ProgramBatcher():
       qMask, pMask = mask
       return [q], [p], pMask
 
+class ExecutionBatcher():
+   def __init__(self, batcher):
+      self.batcher = batcher
+      self.batches = batcher.batches
+
+   def next(self):
+      x, y, mask = self.batcher.next()
+      q, img, imgIdx = x
+      p, ans = y
+      qMask, pMask = mask
+      return [p, img], [ans[:, 0]], None
+
+
 class EndToEnd(nn.Module):
    def __init__(self,
             embedDim, hGen, qLen, qVocab, pVocab,
             numUnary, numBinary, numClasses,
             dropProb):
-      super(Network, self).__init__()
+      super(EndToEnd, self).__init__()
 
       self.ProgramGenerator = ProgramGenerator(
             embedDim, hGen, qLen, qVocab, pVocab)
@@ -53,10 +78,11 @@ class EndToEnd(nn.Module):
 
    def forward(self, x, trainable):
       q, img = x
-      q = self.ProgramGenerator(q, trainable=trainable)
+      p = self.ProgramGenerator(q, trainable=trainable)
       #Breaks graph
-      q = q.data
-      a = self.ExecutionEngine(q, img)
+      _, p = t.max(p, 2)
+      p = p[:, :, 0]
+      a = self.ExecutionEngine((p, img))
       return a
 
 def train():
@@ -67,9 +93,9 @@ def train():
       start = time.time()
 
       trainLoss, trainAcc = utils.runData(net, opt, trainBatcher, 
-            trainable=True, verbose=True, cuda=cuda)
+            criterion, trainable=True, verbose=True, cuda=cuda)
       validLoss, validAcc = utils.runData(net, opt, validBatcher,
-            trainable=False, verbose=False, cuda=cuda)
+            criterion, trainable=False, verbose=False, cuda=cuda)
 
       print('\nEpoch: ', epoch, ', Time: ', time.time()-start)
       print('| Train Perp: ', trainLoss, 
@@ -92,7 +118,7 @@ if __name__ == '__main__':
    root='saves/' + sys.argv[1] + '/'
    cuda=True #All the cudas
 
-   model = 'ProgramGenerator'
+   model = 'EndToEnd'
    
    #Hyperparams
    embedDim = 300
@@ -100,7 +126,7 @@ if __name__ == '__main__':
    dropProb = 1.0 - 0.75
 
    #Params
-   batchSz = 20
+   batchSz = 50
    hGen = 256 
    qLen = 45
    qVocab = 96
@@ -116,12 +142,20 @@ if __name__ == '__main__':
             embedDim, hGen, qLen, qVocab, pVocab,
             numUnary, numBinary, numClasses,
             dropProb)
+      trainBatcher = EndToEndBatcher(trainBatcher)
+      validBatcher = EndToEndBatcher(validBatcher)
+      criterion = nn.CrossEntropyLoss()
+ 
    elif model == 'ProgramGenerator':
       trainBatcher = ProgramBatcher(trainBatcher)
       validBatcher = ProgramBatcher(validBatcher)
+      criterion = utils.maskedCE
       net = ProgramGenerator(
             embedDim, hGen, qLen, qVocab, pVocab)
    elif model == 'ExecutionEngine':
+      trainBatcher = ExecutionBatcher(trainBatcher)
+      validBatcher = ExecutionBatcher(validBatcher)
+      criterion = nn.CrossEntropyLoss()
       net = ExecutionEngine(
             numUnary, numBinary, numClasses)
 
@@ -133,9 +167,6 @@ if __name__ == '__main__':
       net.cuda()
    #net.load_state_dict(root+'weights')
       
-   weight = t.ones(pVocab)
-   weight[0] = 0
-   criterion = nn.CrossEntropyLoss(weight=weight)
    opt = t.optim.Adam(filter(lambda e: e.requires_grad, net.parameters()), lr=eta)
    
    train()

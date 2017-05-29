@@ -40,7 +40,7 @@ class ClevrBatcher():
       uniqueIdx = np.unique(imgIdx).tolist()
       mapTo = np.arange(len(uniqueIdx)).tolist()
       mapDict = dict(zip(uniqueIdx, mapTo))
-      relIdx = [mapDict[x] for x in uniqueIdx]
+      relIdx = [mapDict[x] for x in imgIdx]
 
       imgs      = self.imgs[np.unique(imgIdx).tolist()][relIdx] #Hack to fix h5py unique indexing bug
       questions = self.questions[self.pos:self.pos+batchSize]
