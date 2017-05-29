@@ -51,7 +51,7 @@ class ClevrBatcher():
       pMask     = self.pMask[self.pos:self.pos+batchSize]
 
       self.pos += batchSize
-      return [questions, imgs, imgIdx, qMask, pMask], [programs, answers]
+      return [questions, imgs, imgIdx], [programs, answers], [qMask, pMask]
 
 '''
 #Read data

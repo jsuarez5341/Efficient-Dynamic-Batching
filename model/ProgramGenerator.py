@@ -12,8 +12,8 @@ class ProgramGenerator(nn.Module):
          embedDim, hGen, qLen, qVocab, pVocab):
       super(ProgramGenerator, self).__init__()
       self.embed = nn.Embedding(qVocab, embedDim)
-      self.encoder = t.nn.LSTM(embedDim, hGen, 1, batch_first=True)
-      self.decoder = t.nn.LSTM(hGen, hGen, 1, batch_first=True)
+      self.encoder = t.nn.LSTM(embedDim, hGen, 2, batch_first=True)
+      self.decoder = t.nn.LSTM(hGen, hGen, 2, batch_first=True)
       self.proj  = nn.Linear(hGen, pVocab)
 
       self.qLen = qLen
@@ -26,11 +26,14 @@ class ProgramGenerator(nn.Module):
    def forward(self, x, trainable=False):
       x = self.embed(x)
       x, state = self.encoder(x)
-      state = [state[0][0] for i in range(self.qLen)]
-      state = t.stack(state, 1)
-      x, _ = self.decoder(x)
-      x = x.contiguous().view(-1, self.hGen)
-      x = self.proj(x)
+      stateInp = [state[0][0] for i in range(self.qLen)]
+      stateInp = t.stack(stateInp, 1)
+      x, _ = self.decoder(stateInp, state)
+
+      sz = list(x.size())
+      x  = x.contiguous().view(-1, self.hGen)
+      x  = self.proj(x)
+      x  = x.view(*sz[:2], -1)
 
       #x = F.softmax(x)
       #reward = x.data

@@ -32,10 +32,11 @@ class ProgramBatcher():
       self.batches = batcher.batches
 
    def next(self):
-      x, y = self.batcher.next()
-      q, img, imgIdx, qMask, pMask = x
+      x, y, mask = self.batcher.next()
+      q, img, imgIdx = x
       p, ans = y
-      return [q], [p]
+      qMask, pMask = mask
+      return [q], [p], pMask
 
 class EndToEnd(nn.Module):
    def __init__(self,
@@ -99,7 +100,7 @@ if __name__ == '__main__':
    dropProb = 1.0 - 0.75
 
    #Params
-   batchSz = 10
+   batchSz = 20
    hGen = 256 
    qLen = 45
    qVocab = 96

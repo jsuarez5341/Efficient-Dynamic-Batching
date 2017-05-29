@@ -3,6 +3,7 @@ import sys
 from pdb import set_trace as T
 
 import torch as t
+import torch.nn.functional as F
 from torch import nn
 from torch.autograd import Variable
 import torch.nn.init as init
@@ -55,6 +56,13 @@ def Conv2d(fIn, fOut, k):
 #ModuleList wrapper
 def list(module, *args, n=1):
    return nn.ModuleList([module(*args) for i in range(n)])
+
+#Variable wrapper
+def var(xNp, volatile=False, cuda=False):
+   x = Variable(t.from_numpy(xNp), volatile=volatile)
+   if cuda:
+      x = x.cuda()
+   return x
 
 #Full-network initialization wrapper
 def initWeights(net, scheme='orthogonal'):
@@ -111,13 +119,58 @@ class SaveManager():
    def epoch(self):
       return len(self.tl)+1
 
+#From Github user jihunchoi
+def _sequence_mask(sequence_length, max_len=None):
+   if max_len is None:
+      max_len = sequence_length.data.max()
+   batch_size = sequence_length.size(0)
+   seq_range = t.range(0, max_len - 1).long()
+   seq_range_expand = seq_range.unsqueeze(0).expand(batch_size, max_len)
+   seq_range_expand = Variable(seq_range_expand)
+   if sequence_length.is_cuda:
+      seq_range_expand = seq_range_expand.cuda()
+   seq_length_expand = (sequence_length.unsqueeze(1)
+                       .expand_as(seq_range_expand))
+   return seq_range_expand < seq_length_expand
+
+#From Github user jihunchoi
+def maskedCE(logits, target, length):
+   """
+   Args:
+       logits: A Variable containing a FloatTensor of size
+           (batch, max_len, num_classes) which contains the
+           unnormalized probability for each class.
+       target: A Variable containing a LongTensor of size
+           (batch, max_len) which contains the index of the true
+           class for each corresponding step.
+       length: A Variable containing a LongTensor of size (batch,)
+           which contains the length of each data in a batch.
+
+   Returns:
+       loss: An average loss value masked by the length.
+   """
+
+   # logits_flat: (batch * max_len, num_classes)
+   logits_flat = logits.view(-1, logits.size(-1))
+   # log_probs_flat: (batch * max_len, num_classes)
+   log_probs_flat = F.log_softmax(logits_flat)
+   # target_flat: (batch * max_len, 1)
+   target_flat = target.view(-1, 1)
+   # losses_flat: (batch * max_len, 1)
+   losses_flat = -t.gather(log_probs_flat, dim=1, index=target_flat)
+   # losses: (batch, max_len)
+   losses = losses_flat.view(*target.size())
+   # mask: (batch, max_len)
+   mask = _sequence_mask(sequence_length=length, max_len=target.size(1))
+   losses = losses * mask.float()
+   loss = losses.sum() / length.float().sum()
+   return loss
+
 def runMinibatch(net, batcher, cuda=True, volatile=False, trainable=False):
-   x, y = batcher.next()
-   x = [Variable(t.from_numpy(e), volatile=volatile) for e in x]
-   y = [Variable(t.from_numpy(e), volatile=volatile) for e in y]
-   if cuda:
-      x = [e.cuda() for e in x]
-      y = [e.cuda() for e in y]
+   x, y, mask = batcher.next()
+   x = [var(e, volatile=volatile, cuda=cuda) for e in x]
+   y = [var(e, volatile=volatile, cuda=cuda) for e in y]
+   mask = var(mask, volatile=volatile, cuda=cuda)
 
    if len(x) == 1:
       x = x[0]
@@ -125,72 +178,29 @@ def runMinibatch(net, batcher, cuda=True, volatile=False, trainable=False):
       y = y[0]
 
    a = net(x, trainable)
-   return a, y
-
-def timeGrads(net, cell, batcher, criterion=nn.CrossEntropyLoss(), cuda=True):   
-   iters = batcher.batches
-   def hook(module, grad_input, grad_output):
-      try:
-         hook.timeGrads += [grad_output]
-      except:
-         hook.timeGrads = []
-
-   cell.register_backward_hook(hook)
-
-   for i in range(iters):
-      a, y = runMinibatch(net, batcher, cuda)
-      a = a[:, -1]
-      y = y[:, -1]
-      m = y.size()[0]
-      a, y = a.contiguous().view(m, -1), y.contiguous().view(-1)
-
-      loss = criterion(a, y)
-      loss.backward(retain_variables=True)
-
-      return [e[0].cpu().data.numpy() for e in hook.timeGrads[::-1]]
-   
-
-def gradCheck(net, batcher, criterion=nn.CrossEntropyLoss(), cuda=True):
-   iters = batcher.batches
-   for i in range(iters):
-      a, y = runMinibatch(net, batcher, cuda)
-
-      m = y.size()[0] * y.size()[1]
-      a, y = a.contiguous().view(m, -1), y.contiguous().view(-1)
-
-      loss = criterion(a, y)
-      loss.backward(retain_variables=True)
-   
-      keys = net.state_dict().keys()
-      grads = [e for e in net.parameters()]
-
-      #Got sick of functional
-      out = {}
-      keys = [e for e in net.state_dict().keys()]
-      for i in range(len(grads)):
-         out[keys[i]] = grads[i]
-
-      return out
+   return a, y, mask
      
-def runData(net, opt, batcher, criterion=nn.CrossEntropyLoss(), 
+def runData(net, opt, batcher, criterion=maskedCE, 
       trainable=False, verbose=False, cuda=True,
-      gradClip=10.0, minContext=0):
+      gradClip=10.0, minContext=0, numPrints=10):
    iters = batcher.batches
    meanAcc  = CMA()
    meanLoss = CMA()
 
    for i in range(iters):
-      if verbose and i % int(iters/10) == 0:
-         sys.stdout.write('#')
-         sys.stdout.flush()
+      try:
+         if verbose and i % int(iters/numPrints) == 0:
+            sys.stdout.write('#')
+            sys.stdout.flush()
+      except: 
+         pass
 
-      a, y = runMinibatch(net, batcher, trainable=trainable, cuda=cuda, volatile=not trainable)
+      #Always returns mask. None if unused
+      a, y, mask = runMinibatch(net, batcher, trainable=trainable, cuda=cuda, volatile=not trainable)
 
-      m = np.prod(y.size()).item()
-      a, y = a.view(m, -1), y.view(-1)
-      #m = t.sum(y != 0).data[0]
+      #Compute loss/acc with proper criterion/masking
+      loss, acc = stats(criterion, a, y, mask)
 
-      loss = criterion(a, y)
       if trainable:
          opt.zero_grad()
          loss.backward()
@@ -199,15 +209,20 @@ def runData(net, opt, batcher, criterion=nn.CrossEntropyLoss(),
                   gradClip, norm_type=1)
          opt.step()
 
-      #Stats
-      _, preds = t.max(a.data, 1)
-      acc = sum((y.data == preds)) / float(m)
-      #acc = sum((y.data == preds) * (y.data != 0)) / float(m)
-
       #Accumulate average
       meanLoss.update(loss.data[0])
       meanAcc.update(acc)
 
    return meanLoss.cma, meanAcc.cma
 
+def stats(criterion, a, y, mask):
+   _, preds = t.max(a.data, 2)
+   if criterion == maskedCE:
+      loss = criterion(a, y, mask)
+      m = t.sum(mask)
+      acc = t.sum(y.data == preds) / float(m.data[0])
+   else:
+      loss = criterion(a, y)
+      acc = t.mean((y.data == preds).float())
 
+   return loss, acc
