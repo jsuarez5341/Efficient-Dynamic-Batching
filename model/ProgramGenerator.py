@@ -20,9 +20,6 @@ class ProgramGenerator(nn.Module):
       self.hGen = hGen
       self.pVocab = pVocab
 
-      #For REINFORCE
-      self.eda = utils.EDA()
-
    def forward(self, x, trainable=None):
       x = self.embed(x)
       x, state = self.encoder(x)
@@ -35,15 +32,4 @@ class ProgramGenerator(nn.Module):
       x  = self.proj(x)
       x  = x.view(*sz[:2], -1)
 
-      #x = F.softmax(x)
-      #reward = x.data
-      #self.eda.update(reward.cpu().numpy())
-
-      #if trainable:
-      #   x = x.multinomial(pVocab)
-      #   x.reinforce(reward)
-
-      #x = x.view(-1, self.qLen, self.pVocab)
-      #_, x = t.max(x, 2) #Program inds
-      #x = t.squeeze(x)
       return x

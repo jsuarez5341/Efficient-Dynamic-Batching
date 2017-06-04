@@ -5,11 +5,11 @@ import json
 class Node():
    def __init__(self, cell):
       self.nxt = cell['inputs'][::-1]
-
       self.func = cell['function']
       if len(cell['value_inputs']) > 0:
          self.func += '_' + cell['value_inputs'][0]
 
+#Use for ground truth progs
 class BTree():
    def __init__(self, cells):
       self.root = Node(cells[-1])
@@ -20,6 +20,7 @@ class BTree():
          e = cur.nxt[i]
          node = Node(cells[e])
          cur.nxt[i] = node
+
          self.addNodes(cells, cur.nxt[i])
 
    def flat(self):
@@ -39,12 +40,3 @@ class BTree():
       print(cur.func)
       for e in cur.nxt:
          self.printInternal(e)
-
-
-if __name__ == '__main__':
-   dat = loadDat()
-   q = dat[4]['program']
-   tree = BTree(deepcopy(q))
-   tree.print()
-   T()
-

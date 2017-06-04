@@ -1,39 +1,68 @@
 from pdb import set_trace as T
 import numpy as np
+import time
 
 import torch as t
 import torch.nn as nn
 import torch.nn.functional as F
 
 from model.ResNetTrunc import ResNet
+from model.Tree import BTree
 from model.Program import Program
+from model.Program import Executioner
+from model.Program import FastExecutioner
+from model.Program import FasterExecutioner
 from lib import utils
 
 class ExecutionEngine(nn.Module):
    def __init__(self, 
          numUnary, numBinary, numClasses):
       super(ExecutionEngine, self).__init__()
-      self.arities = [0] + [1]*numUnary+[2]*numBinary
+      self.arities = 2*[0] + [1]*numUnary+[2]*numBinary
       unaries = [UnaryModule() for i in range(numUnary)]
       binaries = [BinaryModule() for i in range(numBinary)]
-      self.cells = nn.ModuleList([None] + unaries + binaries)
+      self.cells = nn.ModuleList(2*[None] + unaries + binaries)
       self.CNN = CNN()
       self.classifier = EngineClassifier(numClasses)
 
    def forward(self, x, trainable=None):
       p, img = x
       a = []
-      img = t.transpose(t.transpose(img, 2, 3), 1, 2)
       imgFeats = self.CNN(img)
 
-      #Can't parallelize
-      for i in range(p.size()[0]):
-         prog = Program(self.arities, self.cells)
-         pi = p[i].data.cpu().numpy().tolist()
-         prog.build(pi)
-         a += [prog.execute(imgFeats[i:i+1])]
-      a = t.cat(a, 0)
-      a = self.classifier(a)
+      fast = True
+      if fast:
+         #Can parallelize
+         progs = []
+         for i in range(p.size()[0]):
+            pi = p[i].data.cpu().numpy().tolist()
+            feats = imgFeats[i].view(1, *imgFeats.size()[1:])
+            prog = Program(pi, feats, self.arities)
+            prog.build()
+            progs += [prog]
+         exeQ = FasterExecutioner(progs, self.cells)
+         start = time.time()
+         a = exeQ.execute()
+         print(time.time() - start)
+         a = self.classifier(a)
+      else:  
+         #Can't parallelize
+         progs = []
+         a = []
+         execs = []
+         start = time.time()
+         for i in range(p.size()[0]):
+            pi = p[i].data.cpu().numpy().tolist()
+            feats = imgFeats[i].view(1, *imgFeats.size()[1:])
+            prog = Program(pi, feats, self.arities)
+            prog.build()
+            exeQ = Executioner(prog, self.cells)
+            a += [exeQ.execute()]
+            execs += [exeQ]
+         print(time.time() - start)
+         a = t.cat(a, 0)
+         a = self.classifier(a)
+         
       return a
 
 class EngineClassifier(nn.Module):
@@ -55,15 +84,10 @@ class EngineClassifier(nn.Module):
 class CNN(nn.Module):
    def __init__(self):
       super(CNN, self).__init__()
-      self.resnet = ResNet()
-      for param in self.resnet.parameters():
-         param.requires_grad=False
-
       self.conv1  = utils.Conv2d(1024, 128, 3)
       self.conv2  = utils.Conv2d(128, 128, 3)
 
    def forward(self, x):
-      x = self.resnet(x[:, :3, :, :])
       x = F.relu(self.conv1(x))
       x = F.relu(self.conv2(x))
       return x

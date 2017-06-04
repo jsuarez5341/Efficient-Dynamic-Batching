@@ -1,4 +1,4 @@
-from pdb import set_trace as T
+from pdb import set_trace as T 
 import sys
 import time
 import numpy as np
@@ -20,8 +20,8 @@ from model.ProgramGenerator import ProgramGenerator
 def dataBatcher():
    print('Loading Data...')
 
-   trainBatcher = ClevrBatcher(batchSz, 'Train', maxSamples=500) 
-   validBatcher = ClevrBatcher(batchSz, 'Val', maxSamples=100)
+   trainBatcher = ClevrBatcher(batchSz, 'Train', maxSamples=maxSamples) 
+   validBatcher = ClevrBatcher(batchSz, 'Val', maxSamples=maxSamples)
    print('Data Loaded.')
 
    return trainBatcher, validBatcher
@@ -35,8 +35,8 @@ class EndToEndBatcher():
       x, y, mask = self.batcher.next()
       q, img, imgIdx = x
       p, ans = y
-      qMask, pMask = mask
-      return [q, img], [ans[:, 0]], None
+      pMask = mask[0]
+      return [q, img, ans[:, 0], p], [ans[:, 0]], None
 
 class ProgramBatcher():
    def __init__(self, batcher):
@@ -47,7 +47,7 @@ class ProgramBatcher():
       x, y, mask = self.batcher.next()
       q, img, imgIdx = x
       p, ans = y
-      qMask, pMask = mask
+      pMask = mask[0]
       return [q], [p], pMask
 
 class ExecutionBatcher():
@@ -59,15 +59,14 @@ class ExecutionBatcher():
       x, y, mask = self.batcher.next()
       q, img, imgIdx = x
       p, ans = y
-      qMask, pMask = mask
+      pMask = mask
       return [p, img], [ans[:, 0]], None
 
 
 class EndToEnd(nn.Module):
    def __init__(self,
             embedDim, hGen, qLen, qVocab, pVocab,
-            numUnary, numBinary, numClasses,
-            dropProb):
+            numUnary, numBinary, numClasses):
       super(EndToEnd, self).__init__()
 
       self.ProgramGenerator = ProgramGenerator(
@@ -76,19 +75,41 @@ class EndToEnd(nn.Module):
       self.ExecutionEngine  = ExecutionEngine(
             numUnary, numBinary, numClasses)
 
+      #For REINFORCE
+      self.expectedReward = utils.EDA()
+
    def forward(self, x, trainable):
-      q, img = x
+      q, img, ans, prog = x #Need ans for reinforce
+      if not trainable: ans = None #Safety
       p = self.ProgramGenerator(q, trainable=trainable)
+
       #Breaks graph
-      _, p = t.max(p, 2)
-      p = p[:, :, 0]
+      batch, sLen, c = p.size() 
+
+      if trainable: #Sample
+         p = F.softmax(p)
+         p = p.view(-1, c)
+         pReinforce = p.multinomial()
+         p = pReinforce.view(batch, sLen)
+      else: #Argmax
+         _, p = t.max(p, 2)
+         p = p[:, :, 0]
+
       a = self.ExecutionEngine((p, img))
+
+      #Reinforce update
+      if trainable:
+         ones = t.ones(batch, sLen)
+         reward = (t.max(a, 1)[1] == ans).float()
+         self.expectedReward.update(t.mean(reward).data[0])
+         reward = reward.data.expand_as(ones).contiguous().view(-1, 1)
+         pReinforce.reinforce(reward - self.expectedReward.eda)
+
       return a
 
 def train():
-   tl, ta, vl, va = [], [], [], []
    epoch = -1
-   while True:
+   while epoch < maxEpochs:
       epoch += 1
       start = time.time()
 
@@ -103,61 +124,72 @@ def train():
       print('| Valid Perp: ', validLoss, 
             ', Valid Acc: ', validAcc)
 
-      tl += [trainLoss]
-      ta += [trainAcc]
-      vl += [validLoss]
-      va += [validAcc]
-      np.save(root+'tl.npy', tl)
-      np.save(root+'ta.npy', ta)
-      np.save(root+'vl.npy', vl)
-      np.save(root+'va.npy', va)
+      saver.update(net, trainLoss, trainAcc, validLoss, validAcc)
 
-      t.save(net.state_dict(), root+'weights')
+def test():
+   start = time.time()
+   validLoss, validAcc = utils.runData(net, opt, validBatcher,
+         criterion, trainable=False, verbose=True, cuda=cuda)
+
+   print('| Valid Perp: ', validLoss, 
+         ', Valid Acc: ', validAcc)
+   print('Time: ', time.time() - start)
+
 
 if __name__ == '__main__':
-   root='saves/' + sys.argv[1] + '/'
+   validate = False
    cuda=True #All the cudas
-
-   model = 'EndToEnd'
+   model = 'ExecutionEngine'
+   root='saves/' + sys.argv[1] + '/'
+   saver = utils.SaveManager(root)
+   maxSamples = 640
    
    #Hyperparams
    embedDim = 300
-   eta = 0.0005
-   dropProb = 1.0 - 0.75
+   #eta = 5e-4
+   eta = 1e-4
 
    #Params
-   batchSz = 50
+   maxEpochs = 18
+   batchSz = 640
    hGen = 256 
    qLen = 45
    qVocab = 96
    pVocab = 41
-   numUnary = 34
-   numBinary = 35
-   numClasses = 60
+   numUnary = 30
+   numBinary = 9
+   numClasses = 29
 
    trainBatcher, validBatcher = dataBatcher()
 
    if model == 'EndToEnd':
       net = EndToEnd(
             embedDim, hGen, qLen, qVocab, pVocab,
-            numUnary, numBinary, numClasses,
-            dropProb)
+            numUnary, numBinary, numClasses)
       trainBatcher = EndToEndBatcher(trainBatcher)
       validBatcher = EndToEndBatcher(validBatcher)
       criterion = nn.CrossEntropyLoss()
+      if validate:  #hardcoded saves
+         progSave = utils.SaveManager('saves/dirk/')
+         execSave = utils.SaveManager('saves/nodachi/')
+         progSave.load(net.ProgramGenerator)
+         execSave.load(net.ExecutionEngine)
  
    elif model == 'ProgramGenerator':
       trainBatcher = ProgramBatcher(trainBatcher)
       validBatcher = ProgramBatcher(validBatcher)
-      criterion = utils.maskedCE
+      criterion = nn.CrossEntropyLoss()#utils.maskedCE
       net = ProgramGenerator(
             embedDim, hGen, qLen, qVocab, pVocab)
+      if validate: saver.load(net)
+
    elif model == 'ExecutionEngine':
       trainBatcher = ExecutionBatcher(trainBatcher)
       validBatcher = ExecutionBatcher(validBatcher)
       criterion = nn.CrossEntropyLoss()
       net = ExecutionEngine(
             numUnary, numBinary, numClasses)
+      if validate: saver.load(net)
 
 
    #distributedBatchSz = batchSz*1
@@ -168,6 +200,10 @@ if __name__ == '__main__':
    #net.load_state_dict(root+'weights')
       
    opt = t.optim.Adam(filter(lambda e: e.requires_grad, net.parameters()), lr=eta)
+   #opt = t.optim.Adam(net.ProgramGenerator.parameters(), lr=eta)
    
-   train()
+   if not validate:
+      train()
+   else:
+      test()
 

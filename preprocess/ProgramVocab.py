@@ -36,4 +36,4 @@ if __name__ == '__main__':
    #2: 9
    with open('../data/vocab/ProgramVocab.txt', 'w') as f:
       for e in vocab:
-         f.write(e[2:]+ ' ')
+         f.write(e+ ' ')

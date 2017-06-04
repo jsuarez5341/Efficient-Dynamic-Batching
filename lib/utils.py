@@ -1,6 +1,7 @@
 import numpy as np
 import sys
 from pdb import set_trace as T
+import time
 
 import torch as t
 import torch.nn.functional as F
@@ -20,6 +21,19 @@ def loadDict(fName):
 def norm(x, n=2):
    return (np.sum(np.abs(x)**n)**(1.0/n)) / np.prod(x.shape)
 
+#Tracks inds of a permutation
+class Perm():
+   def __init__(self, n):
+      self.inds = np.random.permutation(np.arange(n))
+      self.m = n
+      self.pos = 0
+
+   def next(self, n):
+      assert(self.pos + n < self.m)
+      ret = self.inds[self.pos:(self.pos+n)]
+      self.pos += n
+      return ret
+
 #Continuous moving average
 class CMA():
    def __init__(self):
@@ -32,8 +46,8 @@ class CMA():
 
 #Exponentially decaying average
 class EDA():
-   def __init__(self):
-      self.k = 0.99
+   def __init__(self, k=0.99):
+      self.k = k 
       self.eda = 0.0
    
    def update(self, x):
@@ -217,11 +231,15 @@ def runData(net, opt, batcher, criterion=maskedCE,
    return meanLoss.cma, meanAcc.cma
 
 def stats(criterion, a, y, mask):
-   if criterion == maskedCE:
+   if mask is not None:
       _, preds = t.max(a.data, 2)
-      loss = criterion(a, y, mask)
+      batch, sLen, c = a.size()
+      loss = criterion(a.view(-1, c), y.view(-1))
+
       m = t.sum(mask)
-      acc = t.sum(y.data == preds) / float(m.data[0])
+      mask = _sequence_mask(mask, sLen)
+      acc = t.sum(mask.data.float() * (y.data == preds).float()) / float(m.data[0])
+      #loss = criterion(a.view(-1, c), y.view(-1))
    else:
       _, preds = t.max(a.data, 1)
       loss = criterion(a, y)

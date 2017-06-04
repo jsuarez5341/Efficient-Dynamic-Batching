@@ -18,7 +18,6 @@ class ClevrBatcher():
       self.programs  = dat[split + 'Programs']
       self.imgs    = dat[split + 'Imgs']
 
-      self.qMask     = dat[split + 'QuestionMask']
       self.pMask     = dat[split + 'ProgramMask']
       self.imgIdx    = dat[split + 'ImageIdx']
 
@@ -47,11 +46,10 @@ class ClevrBatcher():
       answers   = self.answers[self.pos:self.pos+batchSize]
       programs  = self.programs[self.pos:self.pos+batchSize]
       
-      qMask     = self.qMask[self.pos:self.pos+batchSize]
       pMask     = self.pMask[self.pos:self.pos+batchSize]
 
       self.pos += batchSize
-      return [questions, imgs, imgIdx], [programs, answers], [qMask, pMask]
+      return [questions, imgs, imgIdx], [programs, answers], [pMask]
 
 '''
 #Read data

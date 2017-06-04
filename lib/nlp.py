@@ -2,12 +2,10 @@ import numpy as np
 from lib import utils
 
 #Generic text vocab generator
-def buildVocab(fName, word=False):
+def buildVocab(fName):
    dat = open(fName).read()
-   if word:
-      dat = dat.split()
-   chars = sorted(np.unique(list(dat)).tolist())
-   vocab = dict(zip(list(chars), 1+np.arange(len(chars))))
+   dat = dat.split()
+   vocab = dict(zip(dat, 1+np.arange(len(dat))))
    invVocab = {v: k for k, v in vocab.items()}
    return vocab, invVocab
 
