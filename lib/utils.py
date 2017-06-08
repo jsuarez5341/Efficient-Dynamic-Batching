@@ -212,7 +212,7 @@ def runData(net, opt, batcher, criterion=maskedCE,
 
       #Always returns mask. None if unused
       a, y, mask = runMinibatch(net, batcher, trainable=trainable, cuda=cuda, volatile=not trainable)
-
+      
       #Compute loss/acc with proper criterion/masking
       loss, acc = stats(criterion, a, y, mask)
 

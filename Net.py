@@ -111,14 +111,15 @@ def train():
    epoch = -1
    while epoch < maxEpochs:
       epoch += 1
-      start = time.time()
 
+      start = time.time()
       trainLoss, trainAcc = utils.runData(net, opt, trainBatcher, 
             criterion, trainable=True, verbose=True, cuda=cuda)
       validLoss, validAcc = utils.runData(net, opt, validBatcher,
             criterion, trainable=False, verbose=False, cuda=cuda)
+      trainEpoch = time.time() - start
 
-      print('\nEpoch: ', epoch, ', Time: ', time.time()-start)
+      print('\nEpoch: ', epoch, ', Time: ', trainEpoch)
       print('| Train Perp: ', trainLoss, 
             ', Train Acc: ', trainAcc)
       print('| Valid Perp: ', validLoss, 
@@ -142,7 +143,7 @@ if __name__ == '__main__':
    model = 'ExecutionEngine'
    root='saves/' + sys.argv[1] + '/'
    saver = utils.SaveManager(root)
-   maxSamples = 640
+   maxSamples = 640 
    
    #Hyperparams
    embedDim = 300
@@ -150,7 +151,7 @@ if __name__ == '__main__':
    eta = 1e-4
 
    #Params
-   maxEpochs = 18
+   maxEpochs = 10
    batchSz = 640
    hGen = 256 
    qLen = 45

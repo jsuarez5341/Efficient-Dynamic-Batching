@@ -28,38 +28,36 @@ class ExecutionEngine(nn.Module):
    def forward(self, x, trainable=None):
       p, img = x
       a = []
+      
       imgFeats = self.CNN(img)
+      p = p.data.cpu().numpy().tolist()
 
       fast = True
       if fast:
          #Can parallelize
          progs = []
-         for i in range(p.size()[0]):
-            pi = p[i].data.cpu().numpy().tolist()
-            feats = imgFeats[i].view(1, *imgFeats.size()[1:])
+         for i in range(len(p)):
+            pi = p[i]
+            feats = imgFeats[i:i+1]
             prog = Program(pi, feats, self.arities)
             prog.build()
             progs += [prog]
          exeQ = FasterExecutioner(progs, self.cells)
-         start = time.time()
          a = exeQ.execute()
-         print(time.time() - start)
          a = self.classifier(a)
       else:  
          #Can't parallelize
          progs = []
          a = []
          execs = []
-         start = time.time()
-         for i in range(p.size()[0]):
-            pi = p[i].data.cpu().numpy().tolist()
-            feats = imgFeats[i].view(1, *imgFeats.size()[1:])
+         for i in range(len(p)):
+            pi = p[i]
+            feats = imgFeats[i:i+1]
             prog = Program(pi, feats, self.arities)
             prog.build()
             exeQ = Executioner(prog, self.cells)
             a += [exeQ.execute()]
             execs += [exeQ]
-         print(time.time() - start)
          a = t.cat(a, 0)
          a = self.classifier(a)
          

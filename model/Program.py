@@ -72,41 +72,39 @@ class HighArcESort:
    def __init__(self):
       self.out = {}
 
-   def __call__(self, root, maxDepth):
+   def __call__(self, root):
       assert(not self.out) #Empty
-      self.highArcESortInternal(root, maxDepth)
+      self.highArcESortInternal(root, 0)
       return self.out
 
    def highArcESortInternal(self, cur, rank):
       for nxt in cur.next:
          ret = self.highArcESortInternal(nxt, rank)
-         rank = min(rank, ret)
+         rank = max(rank, ret)
       self.out[rank] = cur
-      return rank-1
+      return rank+1
 
 class FasterExecutioner:
    def __init__(self, progs, cells):
       self.cells = cells
 
       self.progs = progs
+      self.roots = [p.root for p in progs]
       self.sortProgs()
+      self.maxKey = max(list(self.progs.keys()))
 
    def sortProgs(self):
-      maxDepth = 9001 #An arbitrary power level
-      for i in range(len(self.progs)):
-         self.progs[i] = HighArcESort()(self.progs[i].root, maxDepth)
+      progs = {}
+      for prog in self.progs:
+         prog = HighArcESort()(prog.root)
+         for rank, nodeList in prog.items():
+            progs.setdefault(rank, []).append(nodeList)
+      self.progs = progs
    
    def execute(self):
-      maxLen = max([len(e) for e in self.progs])
-      for s in range(maxLen):
-         nodes = []
-         for i in range(len(self.progs)):
-            prog = self.progs[i]
-            if len(prog) <= s:
-               continue
-            nodes += [prog[s]]
-
-         groupedNodes = {}
+      for s in range(self.maxKey+1):
+         nodes = self.progs[s]
+         groupedNodes =  {}
          for node in nodes:
             groupedNodes.setdefault(node.cellInd, []).append(node)
 
@@ -118,20 +116,19 @@ class FasterExecutioner:
             if arity==1:
                arg = t.cat(outData, 0)
                outData = cell(arg)
-               outData = t.split(outData, 1, 0)
+               outData = [outData[i:i+1] for i in range(outData.size()[0])]
             elif arity==2:
                arg1 = t.cat(outData, 0)
                arg2 = t.cat([node.inpData[1] for node in nodes], 0)
                outData = cell(arg1, arg2) 
-               outData = t.split(outData, 1, 0)
-            
+               outData = [outData[i:i+1] for i in range(outData.size()[0])]
             for node, outDat in zip(nodes, outData):
                if node.prev is None:
                   node.outData = outDat
                else:
                   node.prev.inpData += [outDat]
 
-      outData = [prog[-1].outData for prog in self.progs]
+      outData = [root.outData for root in self.roots]
       return t.cat(outData, 0)
 
 
