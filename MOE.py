@@ -14,7 +14,7 @@ from matplotlib import ticker
 
 from lib import utils 
 
-
+#Used for each expert
 class TwoLayerNet(nn.Module):
    def __init__(self, inp, hid, out):
       super(TwoLayerNet, self).__init__()
@@ -27,6 +27,7 @@ class TwoLayerNet(nn.Module):
       x = self.fc2(x)
       return x
 
+#Sparsely gated mixture of experts
 class MOE(nn.Module):
    
    def __init__(self, numExperts, k, dim, hid):
@@ -34,11 +35,11 @@ class MOE(nn.Module):
       #Gate weights
       self.Wg = nn.Linear(dim, numExperts)
       self.Wn = nn.Linear(dim, numExperts)
-      self.experts = utils.list(TwoLayerNet, dim, hid, dim, n=numExperts)
 
-      self.dim = dim
+      self.experts = utils.list(TwoLayerNet, dim, hid, dim, n=numExperts)
       self.k = k
 
+   #As in original paper
    def H(self, x):
       Wg = self.Wg(x)
       noise = Variable(t.randn(*Wg.size()))
@@ -47,11 +48,13 @@ class MOE(nn.Module):
       Wn = F.softplus(self.Wn(x))
       return Wg + noise*Wn
    
+   #Take top k from H
    def gate(self, x):
       a = self.H(x)
       topk, inds = a.topk(self.k)
       return F.softmax(topk), inds
 
+   #Naive implementation with loops
    def vanillaExperts(self, x, gates, expertInds):
       cellTime = 0.0
       ret = []
@@ -62,37 +65,46 @@ class MOE(nn.Module):
             expert = self.experts[expertInd]
             g = gates[samp, j].data[0]
             cellStart = time.time()
-            sampSum += expert(x[samp:samp+1])
+            exp = g*expert(x[samp:samp+1])
             cellTime += time.time() - cellStart
+            sampSum += exp
          ret += [sampSum]
       ret = t.cat(ret, 0)
       return ret, cellTime
  
+   #Our implementation with dynamic batching
    def fastExperts(self, x, gates, expertInds):
       cellTime = 0.0
       samps = x.size(0)
       experts = {}
+
+      #Accumulate data indices by expert
       for i in range(samps):
          for j in range(self.k):
             experts.setdefault(expertInds[i,j].data[0], []).append((i, j))
 
       out = {}
-      T()
       for expInd, datInds in experts.items():
          expert = self.experts[expInd]
          dat = [x[ind[0]:ind[0]+1] for ind in datInds]
          g = [gates[ind[0]:ind[0]+1, ind[1]:ind[1]+1] for ind in datInds]
 
-         cellStart = time.time()
+         #Aggregate data per expert 
+         g   = t.cat(g, 0)
          dat = t.cat(dat, 0)
+ 
+         #Execute and time that particular expert
+         cellStart = time.time()
          exp = expert(dat)
-         g   = t.cat(g, 0).expand_as(exp)
+         exp = exp * g.expand_as(exp)
          cellTime += time.time() - cellStart
 
+         #Replace in original order
          for ind in range(len(datInds)):
             i, j = datInds[ind]
             out.setdefault(i, []).append(exp[ind:ind+1])
 
+      #Compute sums over data
       ret = []
       for i in range(samps):
          ret += [sum(out[i])]
@@ -101,8 +113,11 @@ class MOE(nn.Module):
 
    def forward(self, x, fast=False, unitTest=False):
       start = time.time()
+
+      #Run gate
       gates, expertInds = self.gate(x)
 
+      #Run experts
       if unitTest:
          vanilla, _ = self.vanillaExperts(x, gates, expertInds)
          fast, _    = self.fastExperts(x, gates, expertInds)
@@ -118,6 +133,7 @@ class MOE(nn.Module):
 def data(m, dim):
    return 0.01*np.random.randn(m, dim).astype(np.float32)
 
+#Time forward/cell
 def runTest(net, dat, fast):
    numTests = 1 #faster, and in practice, the numbers do not vary by much
    start = time.time()
@@ -141,6 +157,7 @@ def correctnessCheck(net, dat):
       return False
    return True
 
+#Reproduce figs from paper
 def prettyPlot(samps, dat, hid):
    fig, ax = plt.subplots()
    sz = 14
@@ -190,6 +207,7 @@ if __name__ == '__main__':
    forwardTimes = np.zeros_like(expSamps).astype(np.float32)
    cellTimes = np.zeros_like(expSamps).astype(np.float32)
    
+   #Produce data for figs
    sz = len(samps)
    for i in range(sz):
       for j in range(sz): 
@@ -213,5 +231,6 @@ if __name__ == '__main__':
    np.save('vis/cellspeed.npy', cellTimes)
    np.save('vis/forwardspeed.npy', forwardTimes)
 
+   #Fig from paper
    prettyPlot(samps, cellTimes, hid)
      
