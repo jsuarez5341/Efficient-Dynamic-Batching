@@ -12,14 +12,16 @@ class Node():
       self.prev = prev 
       self.inpData = []
 
-   def build(self, cellInd, arity):
+   def build(self, cellInd, mul, arity):
       self.next = [None] * arity
       self.arity = arity
       self.cellInd = cellInd
+      self.mul = mul
 
 class Program:
-   def __init__(self, prog, imgFeats, arities):
+   def __init__(self, prog, mul, imgFeats, arities):
       self.prog = prog
+      self.mul  = mul
       self.imgFeats = imgFeats
       self.arities = arities
       self.root = Node(None)
@@ -30,11 +32,14 @@ class Program:
    def buildInternal(self, cur=None, count=0):
       if count >= len(self.prog):
          arity = 0
+         ind = 0
+         mul = 1.0
       else:
          ind = self.prog[count]
+         mul = self.mul[count]
          arity = self.arities[ind]
 
-      cur.build(ind, arity)
+      cur.build(ind, mul, arity)
 
       if arity == 0:
          cur.inpData = [self.imgFeats]
@@ -85,8 +90,9 @@ class HighArcESort:
       return rank+1
 
 class FasterExecutioner:
-   def __init__(self, progs, cells):
+   def __init__(self, progs, cells, upscale):
       self.cells = cells
+      self.upscale = upscale
 
       self.progs = progs
       self.roots = [p.root for p in progs]
@@ -111,6 +117,7 @@ class FasterExecutioner:
          for cellInd, nodes in groupedNodes.items():
             arity = nodes[0].arity
             cell = self.cells[cellInd]
+            upscale = self.upscale[cellInd]
 
             outData = [node.inpData[0] for node in nodes]
             if arity==1:
@@ -118,11 +125,15 @@ class FasterExecutioner:
                outData = cell(arg)
                outData = [outData[i:i+1] for i in range(outData.size()[0])]
             elif arity==2:
-               arg1 = t.cat(outData, 0)
-               arg2 = t.cat([node.inpData[1] for node in nodes], 0)
+               arg2 = t.cat(outData, 0)
+               arg1 = t.cat([node.inpData[1] for node in nodes], 0)
                outData = cell(arg1, arg2) 
                outData = [outData[i:i+1] for i in range(outData.size()[0])]
+        
             for node, outDat in zip(nodes, outData):
+               if type(node.mul) != float:
+                  outDat = outDat * upscale(node.mul)
+
                if node.prev is None:
                   node.outData = outDat
                else:
@@ -242,16 +253,6 @@ class Node():
       self.arity = arities[ind]
       self.ann   = cells[ind]
       self.next = [None]*self.arity
-
-class Program():
-   def __init__(self, arities, cells):
-      self.arities = arities
-      self.cells = cells
-      self.root = None 
-
-   #Ind is the output argmax index of the prog generator
-   def addNode(self, ind, cur=None):
-      if self.root is None:
          self.root = Node(ind, self.arities, self.cells)
          return
 

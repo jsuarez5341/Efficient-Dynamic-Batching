@@ -17,7 +17,7 @@ from model.ExecutionEngine import ExecutionEngine
 from model.ProgramGenerator import ProgramGenerator
 
 #Load PTB
-def dataBatcher():
+def dataBatcher(maxSamples):
    print('Loading Data...')
 
    trainBatcher = ClevrBatcher(batchSz, 'Train', maxSamples=maxSamples) 
@@ -59,9 +59,38 @@ class ExecutionBatcher():
       x, y, mask = self.batcher.next()
       q, img, imgIdx = x
       p, ans = y
+      muls = (p*0+1.0).astype(np.float32)
       pMask = mask
-      return [p, img], [ans[:, 0]], None
+      return [p, muls, img], [ans[:, 0]], None
 
+def sample_gumbel(input):
+    noise = torch.rand(input.size())
+    eps = 1e-20
+    noise.add_(eps).log_().neg_()
+    noise.add_(eps).log_().neg_()
+    return Variable(noise)
+
+def gumbel_softmax_sample(inp, temperature):
+    noise = sample_gumbel(inp)
+    if inp.data.type() == 'torch.cuda.FloatTensor':
+       noise = noise.cuda()
+    x = inp + noise*temperature
+    x = F.softmax(x)
+    #x = F.log_softmax(x)
+    return x.view_as(inp)
+
+class DiffArgmax(nn.Module):
+   def __init__(self, op):
+      super(DiffArgmax, self).__init__()
+      self.op = op
+
+   def forward(self, x, *args):
+      x = self.op(x, *args)
+      x = t.max(x, len(x.size())-1)[1][:,:,0]
+      return x
+
+   def backward(self, grad_out):
+      return self.op.backward(grad_out)
 
 class EndToEnd(nn.Module):
    def __init__(self,
@@ -74,6 +103,9 @@ class EndToEnd(nn.Module):
 
       self.ExecutionEngine  = ExecutionEngine(
             numUnary, numBinary, numClasses)
+   
+      self.ArgMax = DiffArgmax(gumbel_softmax_sample)
+      self.temperature = 1.0
 
       #For REINFORCE
       self.expectedReward = utils.EDA()
@@ -83,27 +115,58 @@ class EndToEnd(nn.Module):
       if not trainable: ans = None #Safety
       p = self.ProgramGenerator(q, trainable=trainable)
 
-      #Breaks graph
-      batch, sLen, c = p.size() 
+      batch, sLen, v = p.size() 
+      #p = gumbel_softmax_sample(p, 10000)#self.temperature)
+      p = p.view(-1, v)
+      p = F.softmax(p)
+      #p = gumbel_softmax_sample(p, temperature)#self.temperature)
+      #self.temperature *= 0.9975
+      p = p.view(batch, sLen, v)
 
-      if trainable: #Sample
-         p = F.softmax(p)
-         p = p.view(-1, c)
-         pReinforce = p.multinomial()
-         p = pReinforce.view(batch, sLen)
-      else: #Argmax
-         _, p = t.max(p, 2)
-         p = p[:, :, 0]
+      p, pInds = t.max(p, 2)
 
-      a = self.ExecutionEngine((p, img))
+      pInds = pInds[:, :, 0]
+      p= p[:, :, 0]
 
-      #Reinforce update
+      a = self.ExecutionEngine((pInds, p, img))
+
+      #p = p.view(-1)
+      #pInds = pInds.view(-1)
+
+      '''
       if trainable:
-         ones = t.ones(batch, sLen)
-         reward = (t.max(a, 1)[1] == ans).float()
-         self.expectedReward.update(t.mean(reward).data[0])
-         reward = reward.data.expand_as(ones).contiguous().view(-1, 1)
-         pReinforce.reinforce(reward - self.expectedReward.eda)
+         opt.zero_grad()
+         loss = criterion(a, ans)
+         loss.backward(retain_variables=True)
+         #cellGrads = 2*[t.sum(self.ExecutionEngine.CNN.conv1.weight.grad)] + 
+
+         cellGrads = []
+         for i in range(2):
+            grad = self.ExecutionEngine.CNN.conv1.weight.grad
+            if grad is None:
+               cellGrads += [None]
+            else:
+               cellGrads += [t.sum(grad)]
+         for i in range(2, pVocab):
+            grad = self.ExecutionEngine.cells[i].conv1.weight.grad
+            if grad is None:
+               cellGrads += [None]
+            else:
+               cellGrads += [t.sum(grad)]
+
+         grads = []      
+         progCells = []
+         for i in range(batchSz * sLen):
+            cellInd = pInds.data[i]
+            if cellGrads[cellInd] is not None:
+               grads += [cellGrads[pInds.data[i]]]
+               progCells += [p[i]]
+
+         grads = t.stack(grads)
+         progCells = t.stack(progCells)
+         progCells.backward(grads.data)
+         opt.step()
+      '''
 
       return a
 
@@ -138,20 +201,20 @@ def test():
 
 
 if __name__ == '__main__':
+   load = False
    validate = False
    cuda=True #All the cudas
    model = 'ExecutionEngine'
    root='saves/' + sys.argv[1] + '/'
    saver = utils.SaveManager(root)
-   maxSamples = 640 
+   maxSamples = None
    
    #Hyperparams
    embedDim = 300
-   #eta = 5e-4
-   eta = 1e-4
+   eta = 1e-3
 
    #Params
-   maxEpochs = 10
+   maxEpochs = 100
    batchSz = 640
    hGen = 256 
    qLen = 45
@@ -161,7 +224,7 @@ if __name__ == '__main__':
    numBinary = 9
    numClasses = 29
 
-   trainBatcher, validBatcher = dataBatcher()
+   trainBatcher, validBatcher = dataBatcher(maxSamples)
 
    if model == 'EndToEnd':
       net = EndToEnd(
@@ -170,9 +233,9 @@ if __name__ == '__main__':
       trainBatcher = EndToEndBatcher(trainBatcher)
       validBatcher = EndToEndBatcher(validBatcher)
       criterion = nn.CrossEntropyLoss()
-      if validate:  #hardcoded saves
-         progSave = utils.SaveManager('saves/dirk/')
-         execSave = utils.SaveManager('saves/nodachi/')
+      if load:  #hardcoded saves
+         progSave = utils.SaveManager('saves/cpyprog9k/')
+         execSave = utils.SaveManager('saves/cpyEE/')
          progSave.load(net.ProgramGenerator)
          execSave.load(net.ExecutionEngine)
  
@@ -182,7 +245,7 @@ if __name__ == '__main__':
       criterion = nn.CrossEntropyLoss()#utils.maskedCE
       net = ProgramGenerator(
             embedDim, hGen, qLen, qVocab, pVocab)
-      if validate: saver.load(net)
+      if load: saver.load(net)
 
    elif model == 'ExecutionEngine':
       trainBatcher = ExecutionBatcher(trainBatcher)
@@ -190,7 +253,7 @@ if __name__ == '__main__':
       criterion = nn.CrossEntropyLoss()
       net = ExecutionEngine(
             numUnary, numBinary, numClasses)
-      if validate: saver.load(net)
+      if load: saver.load(net)
 
 
    #distributedBatchSz = batchSz*1
@@ -198,13 +261,54 @@ if __name__ == '__main__':
 
    if cuda:
       net.cuda()
-   #net.load_state_dict(root+'weights')
+   #net.load_state_dict(t.load(root+'weights'))
       
-   opt = t.optim.Adam(filter(lambda e: e.requires_grad, net.parameters()), lr=eta)
+   opt = t.optim.Adam(net.parameters(), lr=eta)
+   #opt = t.optim.Adam(filter(lambda e: e.requires_grad, net.parameters()), lr=eta)
    #opt = t.optim.Adam(net.ProgramGenerator.parameters(), lr=eta)
    
    if not validate:
       train()
    else:
       test()
+'''
+      #p = F.softmax(p)
+      #_, p = t.max(p, 2)
+      #p, pInds = p[:,:,0], pInds[:,:,0]
 
+      #p = gumbel_softmax_sample(p, self.temperature)
+      #p = t.max(p, 2)[1][:,:,0]
+
+      #p = self.ArgMax(p, self.temperature)  
+      #self.temperature *= 0.997
+
+      
+      #Breaks graph
+      batch, sLen, v = p.size() 
+
+      #flatP = p.view(-1, v)
+      #flatProg = prog.view(-1)
+
+      if trainable: #Sample
+         p = F.softmax(p)
+         p = p.view(-1, v)
+         pReinforce = p.multinomial()
+         p = pReinforce.view(batch, sLen)
+      else: #Argmax
+         _, p = t.max(p, 2)
+         p = p[:, :, 0]
+
+      a = self.ExecutionEngine((p, img))
+
+      #Reinforce update
+      if trainable:
+         ones = t.ones(batch, sLen)
+         reward = (t.max(a, 1)[1] == ans).float()
+         self.expectedReward.update(t.mean(reward).data[0])
+         print(self.expectedReward.eda)
+         reward = reward.data.expand_as(ones).contiguous().view(-1, 1)
+         pReinforce.reinforce(reward - self.expectedReward.eda)
+
+         t.autograd.backward(pReinforce, [None for _ in pReinforce])
+
+'''

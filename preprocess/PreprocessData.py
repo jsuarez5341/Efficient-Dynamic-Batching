@@ -11,7 +11,7 @@ from scipy.misc import imresize
 from lib import nlp
 from lib import utils
 from model.Tree import BTree
-from model.ResNetTrunc import ResNet 
+from model.ResNetFeatureExtractor import ResNetFeatureExtractor
 
 import torch as t
 from torch.autograd import Variable
@@ -94,7 +94,7 @@ def runTxt():
 def runImgs(cuda=True):
    print('Preprocessing Images. This might take a while...')
 
-   resnet = ResNet()
+   resnet = ResNetFeatureExtractor()
    if cuda:
       resnet.cuda()
 
@@ -103,10 +103,10 @@ def runImgs(cuda=True):
       imgNames = sorted(os.listdir('data/clevr/images/'+split))
       imgInds  = [int(e[12:-4]) for e in imgNames]
       numImgs = len(imgInds)
-      perWrite = 128
+      perWrite = 64
 
       imgMean = np.array([0.485, 0.456, 0.406])[None, None, None, :]
-      imgStd  = np.array([0.229, 0.224, 0.225])[None, None, None, :]
+      imgStd  = np.array([0.229, 0.224, 0.224])[None, None, None, :]
 
       fAppend = split[0].upper() + split[1:]
       with h5py.File('data/preprocessed/clevr.h5', 'a') as f:
@@ -115,14 +115,14 @@ def runImgs(cuda=True):
          imgs = []
          ind = 0
          for name in imgNames: 
-            img = imread('data/clevr/images/'+split+'/'+name)
+            img = imread('data/clevr/images/'+split+'/'+name, mode='RGB')
             img = imresize(img, (224, 224), interp='bicubic')
             imgs += [img]
 
             ind += 1
             if ind % perWrite == 0:
                print(ind)
-               imgs = np.stack(imgs).astype(np.float32)[:, :, :, :-1]
+               imgs = np.stack(imgs).astype(np.float32)
                imgs = (imgs/255.0 - imgMean) / imgStd
                imgs = np.transpose(imgs, (0, 3, 1, 2)).astype(np.float32)
                

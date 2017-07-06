@@ -11,6 +11,7 @@ from torch.autograd import Variable
 
 from matplotlib import pyplot as plt
 from matplotlib import ticker
+from matplotlib import colors
 
 from lib import utils 
 
@@ -64,9 +65,11 @@ class MOE(nn.Module):
             expertInd = expertInds[samp, j].data[0]
             expert = self.experts[expertInd]
             g = gates[samp, j].data[0]
+            xSamp = x[samp:samp+1]
             cellStart = time.time()
-            exp = g*expert(x[samp:samp+1])
+            exp = expert(xSamp)
             cellTime += time.time() - cellStart
+            exp = g * exp
             sampSum += exp
          ret += [sampSum]
       ret = t.cat(ret, 0)
@@ -96,8 +99,8 @@ class MOE(nn.Module):
          #Execute and time that particular expert
          cellStart = time.time()
          exp = expert(dat)
-         exp = exp * g.expand_as(exp)
          cellTime += time.time() - cellStart
+         exp = exp * g.expand_as(exp)
 
          #Replace in original order
          for ind in range(len(datInds)):
@@ -135,7 +138,7 @@ def data(m, dim):
 
 #Time forward/cell
 def runTest(net, dat, fast):
-   numTests = 1 #faster, and in practice, the numbers do not vary by much
+   numTests = 5 #faster, and in practice, the numbers do not vary by much
    start = time.time()
    forwardTotal = 0.0
    cellTotal = 0.0
@@ -160,7 +163,7 @@ def correctnessCheck(net, dat):
 #Reproduce figs from paper
 def prettyPlot(samps, dat, hid):
    fig, ax = plt.subplots()
-   sz = 14
+   sz = 18
    plt.rc('xtick', labelsize=sz)
    plt.rc('ytick', labelsize=sz)
 
@@ -170,23 +173,23 @@ def prettyPlot(samps, dat, hid):
    ax.xaxis.set_major_locator(ticker.MultipleLocator(1))
    ax.yaxis.set_major_locator(ticker.MultipleLocator(1))
 
-   ax.set_xlabel('Number of Experts', fontsize=sz)
-   ax.set_ylabel('Minibatch Size', fontsize=sz)
-   ax.set_title('MOE Cell Speedup Factor (hidden='+str(hid)+')', fontsize=sz+2)
+   ax.set_xlabel('Number of Experts', fontsize=sz+2)
+   ax.set_ylabel('Minibatch Size', fontsize=sz+2)
+   ax.set_title('MOE Cell Speedup Factor', fontsize=sz+4)
 
    #Show cell values
    for i in range(len(samps)):
       for j in range(len(samps)):
-         ax.text(i, j, str(dat[i,j])[:4], ha='center', va='center', fontsize=sz, color='gray')
+         ax.text(i, j, str(dat[i,j])[:4], ha='center', va='center', fontsize=sz, color='white')
 
-   plt.imshow(cellTimes, cmap='viridis')
+   plt.imshow(cellTimes, cmap='viridis', norm=colors.LogNorm(vmin=cellTimes.min(), vmax=cellTimes.max()))
    plt.show()
  
 
 if __name__ == '__main__':
    cuda=True
-   dim = 10
-   hid = 1000
+   dim = 256
+   hid = 256
    k = 1
    numExperts = 100
    m = 1000

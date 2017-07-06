@@ -104,7 +104,7 @@ class SaveManager():
          print('NaN in update. Locking. Call refresh() to reset')
          return
 
-      if self.epoch() == 1 or vl < np.min(self.vl):
+      if self.epoch() == 1 or va > np.max(self.va):
          self.stateDict = net.state_dict().copy()
          t.save(net.state_dict(), self.root+'weights')
 

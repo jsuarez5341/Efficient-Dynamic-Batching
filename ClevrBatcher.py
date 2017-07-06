@@ -33,7 +33,7 @@ class ClevrBatcher():
       if (self.pos + batchSize) > self.m:
          self.pos = 0
 
-      #Hack to fix stupic h5py indexing bug
+      #Hack to fix stupid h5py indexing bug
       imgIdx    = self.imgIdx[self.pos:self.pos+batchSize]
       uniqueIdx = np.unique(imgIdx).tolist()
       mapTo = np.arange(len(uniqueIdx)).tolist()

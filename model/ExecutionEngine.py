@@ -13,6 +13,7 @@ from model.Program import Executioner
 from model.Program import FastExecutioner
 from model.Program import FasterExecutioner
 from lib import utils
+from lib import nlp
 
 class ExecutionEngine(nn.Module):
    def __init__(self, 
@@ -21,46 +22,55 @@ class ExecutionEngine(nn.Module):
       self.arities = 2*[0] + [1]*numUnary+[2]*numBinary
       unaries = [UnaryModule() for i in range(numUnary)]
       binaries = [BinaryModule() for i in range(numBinary)]
-      self.cells = nn.ModuleList(2*[None] + unaries + binaries)
+      self.cells =   nn.ModuleList(2*[None] + unaries + binaries)
+      self.upscale = nn.ModuleList([Upscale() for i in range(len(self.cells))])
       self.CNN = CNN()
       self.classifier = EngineClassifier(numClasses)
 
+   def parallel(self, pInds, p, imgFeats):
+      progs = []
+      #This bit should be multiprocessed
+      for i in range(len(pInds)):
+         piInds = pInds[i]
+         pi     = p[i]
+         feats = imgFeats[i:i+1]
+         prog = Program(piInds, pi, feats, self.arities)
+         prog.build()
+         progs += [prog]
+
+      exeQ = FasterExecutioner(progs, self.cells, self.upscale)
+      a = exeQ.execute()
+      return a
+
+   def sequential(self, p, imgFeats):
+      progs = []
+      a = []
+      execs = []
+      for i in range(len(p)):
+         pi = p[i]
+         feats = imgFeats[i:i+1]
+         prog = Program(pi, feats, self.arities)
+         prog.build()
+         exeQ = Executioner(prog, self.cells)
+         a += [exeQ.execute()]
+         execs += [exeQ]
+      a = t.cat(a, 0)
+      return a
+ 
    def forward(self, x, trainable=None):
-      p, img = x
+      pInds, p, img = x
       a = []
       
       imgFeats = self.CNN(img)
-      p = p.data.cpu().numpy().tolist()
+      pInds = pInds.data.cpu().numpy().tolist()
 
-      fast = True
+      fast = True#Switch to false for original
       if fast:
-         #Can parallelize
-         progs = []
-         for i in range(len(p)):
-            pi = p[i]
-            feats = imgFeats[i:i+1]
-            prog = Program(pi, feats, self.arities)
-            prog.build()
-            progs += [prog]
-         exeQ = FasterExecutioner(progs, self.cells)
-         a = exeQ.execute()
-         a = self.classifier(a)
+         a = self.parallel(pInds, p, imgFeats)
       else:  
-         #Can't parallelize
-         progs = []
-         a = []
-         execs = []
-         for i in range(len(p)):
-            pi = p[i]
-            feats = imgFeats[i:i+1]
-            prog = Program(pi, feats, self.arities)
-            prog.build()
-            exeQ = Executioner(prog, self.cells)
-            a += [exeQ.execute()]
-            execs += [exeQ]
-         a = t.cat(a, 0)
-         a = self.classifier(a)
-         
+         a = self.sequential(p, imgFeats)
+      
+      a = self.classifier(a)
       return a
 
 class EngineClassifier(nn.Module):
@@ -78,7 +88,7 @@ class EngineClassifier(nn.Module):
       x = F.relu(self.fc1(x))
       x = self.fc2(x)
       return x
-
+   
 class CNN(nn.Module):
    def __init__(self):
       super(CNN, self).__init__()
@@ -120,4 +130,16 @@ class BinaryModule(nn.Module):
       x += res
       x = F.relu(x)
       return x
+
+class Upscale(nn.Module):
+   def __init__(self):
+      super(Upscale, self).__init__()
+      self.fc = nn.Linear(1, 128*14*14)
+
+   def forward(self, x):
+      x = x.view(1, 1)
+      x = self.fc(x)
+      x = x.view(-1, 128, 14, 14)
+      return x
+
 

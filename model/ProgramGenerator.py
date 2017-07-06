@@ -4,7 +4,6 @@ import numpy as np
 import torch as t
 import torch.nn as nn
 import torch.nn.functional as F
-
 from lib import utils
 
 class ProgramGenerator(nn.Module):
