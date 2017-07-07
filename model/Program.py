@@ -90,9 +90,8 @@ class HighArcESort:
       return rank+1
 
 class FasterExecutioner:
-   def __init__(self, progs, cells, upscale):
+   def __init__(self, progs, cells):
       self.cells = cells
-      self.upscale = upscale
 
       self.progs = progs
       self.roots = [p.root for p in progs]
@@ -117,7 +116,6 @@ class FasterExecutioner:
          for cellInd, nodes in groupedNodes.items():
             arity = nodes[0].arity
             cell = self.cells[cellInd]
-            upscale = self.upscale[cellInd]
 
             outData = [node.inpData[0] for node in nodes]
             if arity==1:
@@ -132,7 +130,7 @@ class FasterExecutioner:
         
             for node, outDat in zip(nodes, outData):
                if type(node.mul) != float:
-                  outDat = outDat * upscale(node.mul)
+                  outDat = outDat
 
                if node.prev is None:
                   node.outData = outDat

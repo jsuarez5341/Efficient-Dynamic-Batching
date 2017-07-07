@@ -19,7 +19,7 @@ class ProgramGenerator(nn.Module):
       self.hGen = hGen
       self.pVocab = pVocab
 
-   def forward(self, x, trainable=None):
+   def forward(self, x):
       x = self.embed(x)
       x, state = self.encoder(x)
       stateInp = [state[0][0] for i in range(self.qLen)]

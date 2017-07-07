@@ -6,7 +6,6 @@ import torch as t
 import torch.nn as nn
 import torch.nn.functional as F
 
-from model.ResNetTrunc import ResNet
 from model.Tree import BTree
 from model.Program import Program
 from model.Program import Executioner
@@ -23,7 +22,6 @@ class ExecutionEngine(nn.Module):
       unaries = [UnaryModule() for i in range(numUnary)]
       binaries = [BinaryModule() for i in range(numBinary)]
       self.cells =   nn.ModuleList(2*[None] + unaries + binaries)
-      self.upscale = nn.ModuleList([Upscale() for i in range(len(self.cells))])
       self.CNN = CNN()
       self.classifier = EngineClassifier(numClasses)
 
@@ -38,7 +36,7 @@ class ExecutionEngine(nn.Module):
          prog.build()
          progs += [prog]
 
-      exeQ = FasterExecutioner(progs, self.cells, self.upscale)
+      exeQ = FasterExecutioner(progs, self.cells)
       a = exeQ.execute()
       return a
 
@@ -57,14 +55,13 @@ class ExecutionEngine(nn.Module):
       a = t.cat(a, 0)
       return a
  
-   def forward(self, x, trainable=None):
+   def forward(self, x, fast=True):
       pInds, p, img = x
       a = []
       
       imgFeats = self.CNN(img)
       pInds = pInds.data.cpu().numpy().tolist()
 
-      fast = True#Switch to false for original
       if fast:
          a = self.parallel(pInds, p, imgFeats)
       else:  
