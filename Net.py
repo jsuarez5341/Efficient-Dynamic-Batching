@@ -72,12 +72,6 @@ class EndToEnd(nn.Module):
       self.ExecutionEngine  = ExecutionEngine(
             numUnary, numBinary, numClasses)
    
-      self.ArgMax = DiffArgmax(gumbel_softmax_sample)
-      self.temperature = 1.0
-
-      #For REINFORCE
-      self.expectedReward = utils.EDA()
-
    def forward(self, x, trainable, fast=True):
       q, img, ans, prog = x #Need ans for reinforce
       if not trainable: ans = None #Safety
@@ -127,14 +121,14 @@ def test():
 
 
 if __name__ == '__main__':
-   load = False
-   validate = False
+   load = True
+   validate = True
    cuda = True #All the cudas
    fast = True #Parallel
-   model = 'ExecutionEngine'
+   model = 'EndToEnd'
    root='saves/' + sys.argv[1] + '/'
    saver = utils.SaveManager(root)
-   maxSamples = None
+   maxSamples = 640
    
    #Hyperparams
    embedDim = 300
@@ -161,8 +155,8 @@ if __name__ == '__main__':
       validBatcher = EndToEndBatcher(validBatcher)
       criterion = nn.CrossEntropyLoss()
       if load:  #hardcoded saves
-         progSave = utils.SaveManager('saves/cpyprog9k/')
-         execSave = utils.SaveManager('saves/cpyEE/')
+         progSave = utils.SaveManager('saves/prog18k/')
+         execSave = utils.SaveManager('saves/eefull/')
          progSave.load(net.ProgramGenerator)
          execSave.load(net.ExecutionEngine)
  
