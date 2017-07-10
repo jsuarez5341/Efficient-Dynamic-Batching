@@ -13,7 +13,7 @@ from ClevrBatcher import ClevrBatcher
 from model.ExecutionEngine import ExecutionEngine
 from model.ProgramGenerator import ProgramGenerator
 
-#Load PTB
+#Load CLEVR
 def dataBatcher(maxSamples):
    print('Loading Data...')
 
